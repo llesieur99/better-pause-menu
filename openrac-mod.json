@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "0.2.0",
+  "version": "0.3.1",
   "author": "mo",
   "license": "GPL-3.0-or-later",
   "api": "1.9",
@@ -12,5 +12,5 @@
   },
   "id": "better-pause-menu",
   "name": "Better Pause Menu",
-  "description": "Native RAC1-style QoL page with planet/health status and safe planet restart; no overlay banner and no cutscene skipping."
+  "description": "Central RAC1-style QoL Hub for status, collectibles, missions, fast travel, checkpoints, saves, restart and vendor information; no duplicate bolt HUD and no cutscene skipping."
 }
