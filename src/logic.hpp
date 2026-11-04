@@ -20,6 +20,12 @@ inline std::string hub_session_line(int deaths, bool checkpoint_ready, int mods)
 inline std::string hub_progress_line(const std::string& progress) {
     return clip_line("Last: " + progress);
 }
+inline std::string collectibles_line(int total, int gold_here, int info_here, int skill_here) {
+    return clip_line(
+        "Collectibles G" + std::to_string(total) + "/40 | here G" + std::to_string(gold_here)
+        + " I" + std::to_string(info_here) + " S" + std::to_string(skill_here)
+    );
+}
 inline std::string hp_line(int hp){ return "Health "+std::to_string(hp); }
 inline std::uint16_t pad_buttons(const std::uint8_t* report) {
  return static_cast<std::uint16_t>((~report[0])&0xffu)

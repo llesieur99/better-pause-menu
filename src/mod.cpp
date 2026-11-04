@@ -24,8 +24,10 @@ enum class View {
     Saves,
     Gameplay,
     Vendor,
-    Settings,
-    ModDetails
+    Accessibility,
+    Cutscenes,
+    NewGamePlus,
+    Settings
 };
 
 openrac::Mod* g = nullptr;
@@ -43,19 +45,7 @@ int last_item = -1;
 std::string objective = "No active objective";
 std::string last_progress = "No recent progress";
 
-struct HubMod {
-    std::string id;
-    std::string name;
-    std::string summary;
-    std::string open_hint;
-    std::string plugin_dir;
-    std::string bridge_library;
-    std::string bridge_symbol;
-};
-std::vector<HubMod> hub_mods;
-int selected_hub_mod = -1;
-int pending_hub_mod_open = -1;
-bool show_mod_entries = true;
+std::string plugins_json;
 bool auto_checkpoint = true;
 
 bool pending_restart = false;
@@ -105,23 +95,6 @@ std::string trim(std::string v) {
     return v.substr(i);
 }
 
-bool plugin_enabled(const std::string& json, const std::string& id) {
-    const std::string needle = "\"id\": \"" + id + "\"";
-    auto pos = json.find(needle);
-    if (pos == std::string::npos) {
-        const std::string compact = "\"id\":\"" + id + "\"";
-        pos = json.find(compact);
-    }
-    if (pos == std::string::npos) return false;
-    const auto next = json.find("\"id\"", pos + needle.size());
-    const auto enabled = json.find("\"enabled\"", pos);
-    if (enabled == std::string::npos || (next != std::string::npos && enabled > next)) return false;
-    const auto colon = json.find(':', enabled);
-    if (colon == std::string::npos || (next != std::string::npos && colon > next)) return false;
-    const auto value = json.find_first_not_of(" \t\r\n", colon + 1);
-    return value != std::string::npos && json.compare(value, 4, "true") == 0;
-}
-
 std::filesystem::path plugin_root_path() {
 #if defined(__APPLE__) || defined(__linux__)
     Dl_info info{};
@@ -135,76 +108,69 @@ std::filesystem::path plugin_root_path() {
     return {};
 }
 
-void discover_hub_mods() {
-    hub_mods.clear();
+void refresh_plugin_config() {
+    plugins_json.clear();
     const auto root = plugin_root_path();
     if (root.empty()) return;
-
     std::ifstream jf(root / "plugins.json");
     std::stringstream js;
     js << jf.rdbuf();
-    const std::string plugins_json = js.str();
-
-    std::error_code ec;
-    for (const auto& entry : std::filesystem::directory_iterator(root, ec)) {
-        if (ec || !entry.is_directory()) continue;
-        const auto marker = entry.path() / "qol-hub.ini";
-        if (!std::filesystem::exists(marker)) continue;
-
-        HubMod hm;
-        std::ifstream in(marker);
-        std::string line;
-        while (std::getline(in, line)) {
-            const auto eq = line.find('=');
-            if (eq == std::string::npos) continue;
-            const auto key = trim(line.substr(0, eq));
-            const auto value = trim(line.substr(eq + 1));
-            if (key == "id") hm.id = value;
-            else if (key == "name") hm.name = value;
-            else if (key == "summary") hm.summary = value;
-            else if (key == "open") hm.open_hint = value;
-            else if (key == "bridge_symbol") hm.bridge_symbol = value;
-#if defined(__APPLE__)
-            else if (key == "bridge_macos") hm.bridge_library = value;
-#elif defined(__linux__)
-            else if (key == "bridge_linux") hm.bridge_library = value;
-#endif
-        }
-        if (hm.id.empty() || hm.name.empty()) continue;
-        if (entry.path().filename().string() != hm.id) continue;
-        if (!plugin_enabled(plugins_json, hm.id)) continue;
-        hm.plugin_dir = entry.path().string();
-        hub_mods.push_back(std::move(hm));
-    }
-    std::sort(hub_mods.begin(), hub_mods.end(), [](const HubMod& a, const HubMod& b) {
-        return a.name < b.name;
-    });
+    plugins_json = js.str();
 }
 
-bool open_hub_bridge(const HubMod& hm) {
-#if defined(__APPLE__) || defined(__linux__)
-    if (hm.bridge_library.empty() || hm.bridge_symbol.empty()) return false;
-    const auto library = std::filesystem::path(hm.plugin_dir) / hm.bridge_library;
-    void* handle = dlopen(library.c_str(), RTLD_NOW | RTLD_LOCAL);
-    if (handle == nullptr) {
-        g->info("QoL Hub: cannot open bridge library for " + hm.id);
-        return false;
+std::size_t plugin_end(const std::string& json, std::size_t pos) {
+    const auto next = json.find("\"id\"", pos + 4);
+    return next == std::string::npos ? json.size() : next;
+}
+
+std::string plugin_value(const std::string& id, const std::string& key) {
+    const std::string id1 = "\"id\": \"" + id + "\"";
+    const std::string id2 = "\"id\":\"" + id + "\"";
+    auto pos = plugins_json.find(id1);
+    if (pos == std::string::npos) pos = plugins_json.find(id2);
+    if (pos == std::string::npos) return {};
+    const auto end = plugin_end(plugins_json, pos);
+    const std::string needle = "\"" + key + "\"";
+    const auto field = plugins_json.find(needle, pos);
+    if (field == std::string::npos || field >= end) return {};
+    const auto colon = plugins_json.find(':', field + needle.size());
+    if (colon == std::string::npos || colon >= end) return {};
+    const auto first = plugins_json.find_first_not_of(" \t\r\n", colon + 1);
+    if (first == std::string::npos || first >= end) return {};
+    if (plugins_json[first] == '"') {
+        const auto last = plugins_json.find('"', first + 1);
+        return last == std::string::npos || last >= end ? std::string{} : plugins_json.substr(first + 1, last - first - 1);
     }
-    using OpenFn = int (*)();
-    auto fn = reinterpret_cast<OpenFn>(dlsym(handle, hm.bridge_symbol.c_str()));
-    if (fn == nullptr) {
-        g->info("QoL Hub: bridge symbol missing for " + hm.id);
-        dlclose(handle);
-        return false;
-    }
-    const bool opened = fn() != 0;
-    dlclose(handle);
-    if (!opened) g->info("QoL Hub: " + hm.id + " bridge refused to open");
-    return opened;
-#else
-    (void)hm;
-    return false;
-#endif
+    const auto last = plugins_json.find_first_of(",}\r\n", first);
+    return trim(plugins_json.substr(first, (last == std::string::npos ? end : std::min(last, end)) - first));
+}
+
+bool plugin_is_enabled(const std::string& id) {
+    const std::string id1 = "\"id\": \"" + id + "\"";
+    const std::string id2 = "\"id\":\"" + id + "\"";
+    auto pos = plugins_json.find(id1);
+    if (pos == std::string::npos) pos = plugins_json.find(id2);
+    if (pos == std::string::npos) return false;
+    const auto end = plugin_end(plugins_json, pos);
+    const auto field = plugins_json.find("\"enabled\"", pos);
+    if (field == std::string::npos || field >= end) return false;
+    const auto colon = plugins_json.find(':', field);
+    if (colon == std::string::npos || colon >= end) return false;
+    const auto value = plugins_json.find_first_not_of(" \t\r\n", colon + 1);
+    return value != std::string::npos && value < end && plugins_json.compare(value, 4, "true") == 0;
+}
+
+int plugin_int(const std::string& id, const std::string& key, int fallback) {
+    const auto raw = plugin_value(id, key);
+    if (raw.empty()) return fallback;
+    try { return std::stoi(raw); } catch (...) { return fallback; }
+}
+
+bool plugin_bool(const std::string& id, const std::string& key, bool fallback) {
+    const auto raw = plugin_value(id, key);
+    if (raw == "true") return true;
+    if (raw == "false") return false;
+    return fallback;
 }
 
 int save_slot_count() {
@@ -242,28 +208,13 @@ void handle_choose(const openrac::UiPage& page, int item) {
 
     switch (view) {
         case View::Hub:
-            if (item >= 0 && item <= 6) {
+            if (item >= 0 && item <= 10) {
                 static const View core[] = {
                     View::Collectibles, View::Missions, View::Travel,
-                    View::Checkpoints, View::Saves, View::Gameplay, View::Vendor
+                    View::Checkpoints, View::Saves, View::Gameplay, View::Vendor,
+                    View::Accessibility, View::Cutscenes, View::NewGamePlus, View::Settings
                 };
                 view = core[item];
-            } else {
-                const int mod_base = 7;
-                const int mod_count = show_mod_entries ? static_cast<int>(hub_mods.size()) : 0;
-                if (item >= mod_base && item < mod_base + mod_count) {
-                    selected_hub_mod = item - mod_base;
-                    const auto& hm = hub_mods[selected_hub_mod];
-                    if (!hm.bridge_library.empty() && !hm.bridge_symbol.empty()) {
-                        pending_hub_mod_open = selected_hub_mod;
-                        view = View::Hub;
-                        page.back();
-                    } else {
-                        view = View::ModDetails;
-                    }
-                } else if (item == mod_base + mod_count) {
-                    view = View::Settings;
-                }
             }
             break;
 
@@ -343,15 +294,22 @@ void handle_choose(const openrac::UiPage& page, int item) {
             if (item == 2) view = View::Hub;
             break;
 
-        case View::Settings:
-            if (item == 0) show_mod_entries = !show_mod_entries;
-            else if (item == 1) auto_checkpoint = !auto_checkpoint;
-            else if (item == 2) { show_mod_entries = true; auto_checkpoint = true; }
-            else if (item == 3) view = View::Hub;
+        case View::Accessibility:
+            if (item == 5) view = View::Hub;
             break;
 
-        case View::ModDetails:
-            if (item == 2) view = View::Hub;
+        case View::Cutscenes:
+            if (item == 4) view = View::Hub;
+            break;
+
+        case View::NewGamePlus:
+            if (item == 3) view = View::Hub;
+            break;
+
+        case View::Settings:
+            if (item == 0) auto_checkpoint = !auto_checkpoint;
+            else if (item == 4) auto_checkpoint = true;
+            else if (item == 5) view = View::Hub;
             break;
     }
 }
@@ -367,27 +325,28 @@ openrac::UiContent content_for_view() {
             const bool hero = g->hero_pose(pose);
             const bool checkpoint_ready = !snapshot.empty() && snapshot_loads == status.loads;
             const std::string planet = status.level >= 0 ? g->level_name(status.level) : "-";
+            int gold = 0, info = 0, skill = 0;
+            collectible_counts(gold, info, skill);
+            auto gold_fn = g->original<openrac::rac1::GoldBolts_CountCollected>();
+            const int gold_total = gold_fn != nullptr ? gold_fn() : 0;
 
             c.title = "QoL Hub";
             c.items = {
-                openrac::UiItem::button("Collectibles", true),
+                openrac::UiItem::button(qol::collectibles_line(gold_total, gold, info, skill), true),
                 openrac::UiItem::button("Missions", true),
                 openrac::UiItem::button("Fast Travel", true),
                 openrac::UiItem::button("Checkpoints", g->has_savestates()),
                 openrac::UiItem::button("Save Manager", true),
                 openrac::UiItem::button("Gameplay Tools", true),
-                openrac::UiItem::button("Vendor Info", true)
+                openrac::UiItem::button("Vendor Info", true),
+                openrac::UiItem::button("Accessibility", true),
+                openrac::UiItem::button("Cutscene Manager", true),
+                openrac::UiItem::button("New Game Plus", true),
+                openrac::UiItem::button("Settings", true)
             };
-            if (show_mod_entries) {
-                for (const auto& m : hub_mods) c.items.push_back(openrac::UiItem::button(m.name, true));
-            }
-            c.items.push_back(openrac::UiItem::button("Settings", true));
-
-            // The RAC1 native mod page exposes three footer rows. Keep live status there so it is
-            // visible immediately when the hub opens without consuming selectable menu rows.
             c.footer = {
                 qol::hub_status_line(planet, hero ? pose.health : 0, g->bolts()),
-                qol::hub_session_line(deaths, checkpoint_ready, static_cast<int>(hub_mods.size())),
+                qol::hub_session_line(deaths, checkpoint_ready, 12),
                 qol::hub_progress_line(last_progress)
             };
             break;
@@ -438,7 +397,7 @@ openrac::UiContent content_for_view() {
                 c.items.push_back(openrac::UiItem::button("Back to QoL Hub", true));
             }
             c.footer = {travel_feedback.empty()
-                ? "All unlocked planets are available directly from the pause menu"
+                ? "Integrated here; Fast Travel also remains a standalone package"
                 : travel_feedback};
             break;
 
@@ -451,7 +410,7 @@ openrac::UiContent content_for_view() {
                 openrac::UiItem::button("Restore quick checkpoint", playing(status) && valid),
                 openrac::UiItem::button("Back to QoL Hub", true)
             };
-            c.footer = {"Quick checkpoints last only for the current level load"};
+            c.footer = {"Checkpoint Plus is absorbed into this Hub module"};
             break;
         }
 
@@ -476,7 +435,7 @@ openrac::UiContent content_for_view() {
             c.items.push_back(openrac::UiItem::button("Save active slot", can_save));
             c.items.push_back(openrac::UiItem::button("Back to QoL Hub", true));
             c.footer = {
-                can_save ? "Writes only to the game's current active save"
+                can_save ? "Integrated here; Save Manager also remains a standalone package"
                          : "Manual save requires an active save and OpenRAC API 1.11+"
             };
             break;
@@ -489,7 +448,7 @@ openrac::UiContent content_for_view() {
                 openrac::UiItem::text("Deaths this session: " + std::to_string(deaths)),
                 openrac::UiItem::button("Back to QoL Hub", true)
             };
-            c.footer = {"Cutscenes are deliberately untouched here"};
+            c.footer = {"Death Improvements is absorbed; cutscene safety stays separate"};
             break;
 
         case View::Vendor:
@@ -501,34 +460,63 @@ openrac::UiContent content_for_view() {
                     : "Last acquired item: -"),
                 openrac::UiItem::button("Back to QoL Hub", true)
             };
+            c.footer = {"Improved Vendor is absorbed into this Hub module"};
             break;
+
+        case View::Accessibility: {
+            const bool enabled = plugin_is_enabled("accessibility-pack");
+            c.title = "Accessibility";
+            c.items = {
+                openrac::UiItem::text(std::string("Background mod: ") + (enabled ? "ACTIVE" : "OFF")),
+                openrac::UiItem::text(std::string("Hold Cross: ") + (plugin_bool("accessibility-pack", "turbo_cross", true) ? "ON" : "OFF")),
+                openrac::UiItem::text(std::string("Hold Circle: ") + (plugin_bool("accessibility-pack", "turbo_circle", false) ? "ON" : "OFF")),
+                openrac::UiItem::text(std::string("Hold Square: ") + (plugin_bool("accessibility-pack", "turbo_square", false) ? "ON" : "OFF")),
+                openrac::UiItem::text("Mash interval: " + std::to_string(plugin_int("accessibility-pack", "turbo_interval", 6)) + " ticks"),
+                openrac::UiItem::button("Back to QoL Hub", true)
+            };
+            c.footer = {"Background behavior stays separate; change values in Launcher > Mods"};
+            break;
+        }
+
+        case View::Cutscenes: {
+            const bool enabled = plugin_is_enabled("cutscene-manager");
+            const int mode = plugin_int("cutscene-manager", "mode", 0);
+            c.title = "Cutscene Manager";
+            c.items = {
+                openrac::UiItem::text(std::string("Background mod: ") + (enabled ? "ACTIVE" : "OFF")),
+                openrac::UiItem::text(std::string("Safe repeat skipping: ") + (mode == 1 ? "ON" : "OFF")),
+                openrac::UiItem::text("Minimum scene frames: " + std::to_string(plugin_int("cutscene-manager", "min_frames", 45))),
+                openrac::UiItem::text("Progression/end scenes: NEVER skipped"),
+                openrac::UiItem::button("Back to QoL Hub", true)
+            };
+            c.footer = {"Background safety logic remains separate from the UI hub"};
+            break;
+        }
+
+        case View::NewGamePlus: {
+            const bool enabled = plugin_is_enabled("new-game-plus");
+            c.title = "New Game Plus";
+            c.items = {
+                openrac::UiItem::text(std::string("Background mod: ") + (enabled ? "ACTIVE" : "OFF")),
+                openrac::UiItem::text("Starting bolt bonus: " + std::to_string(plugin_int("new-game-plus", "bonus_bolts", 0))),
+                openrac::UiItem::text("Cutscenes and progression stay native"),
+                openrac::UiItem::button("Back to QoL Hub", true)
+            };
+            c.footer = {"Challenge Mode background logic remains separate"};
+            break;
+        }
 
         case View::Settings:
             c.title = "QoL Hub Settings";
             c.items = {
-                openrac::UiItem::button(std::string("Registered mods: ") + (show_mod_entries ? "ON" : "OFF"), true),
                 openrac::UiItem::button(std::string("Auto checkpoint: ") + (auto_checkpoint ? "ON" : "OFF"), true),
+                openrac::UiItem::text("Fast Travel: integrated + standalone package"),
+                openrac::UiItem::text("Save Manager: integrated + standalone package"),
+                openrac::UiItem::text("Background settings use Launcher > Mods"),
                 openrac::UiItem::button("Restore defaults", true),
                 openrac::UiItem::button("Back to QoL Hub", true)
             };
-            c.footer = {"Changes apply immediately for this session"};
-            break;
-
-        case View::ModDetails:
-            c.title = "Mod";
-            if (selected_hub_mod >= 0 && selected_hub_mod < static_cast<int>(hub_mods.size())) {
-                const auto& m = hub_mods[selected_hub_mod];
-                c.title = m.name;
-                c.items = {
-                    openrac::UiItem::text(m.summary.empty() ? "Registered QoL Hub mod" : m.summary),
-                    openrac::UiItem::text(!m.bridge_symbol.empty()
-                        ? "Opens directly from QoL Hub"
-                        : (m.open_hint.empty() ? "No separate settings page" : "Open: " + m.open_hint)),
-                    openrac::UiItem::button("Back to QoL Hub", true)
-                };
-            } else {
-                c.items = {openrac::UiItem::text("Mod is no longer available"), openrac::UiItem::text(""), openrac::UiItem::button("Back to QoL Hub", true)};
-            }
+            c.footer = {"HUD/Collectibles/Missions/Checkpoint/Death/Vendor are Hub modules"};
             break;
     }
 
@@ -565,10 +553,10 @@ void load(openrac::Mod& mod) {
         }
     }
 
-    discover_hub_mods();
+    refresh_plugin_config();
 
     hub = mod.ui_page([](const openrac::UiPage& page, const openrac::UiEvent& event) {
-        if (event.is(OPENRAC_UI_SHOW)) { discover_hub_mods(); view = View::Hub; }
+        if (event.is(OPENRAC_UI_SHOW)) { refresh_plugin_config(); view = View::Hub; }
         if (event.is(OPENRAC_UI_CHOOSE)) handle_choose(page, event.item());
         page.set(content_for_view());
     });
@@ -625,17 +613,6 @@ void load(openrac::Mod& mod) {
             hub.open();
         }
 
-        if (pending_hub_mod_open >= 0) {
-            const int index = pending_hub_mod_open;
-            pending_hub_mod_open = -1;
-            if (index >= 0 && index < static_cast<int>(hub_mods.size())) {
-                if (!open_hub_bridge(hub_mods[index])) {
-                    selected_hub_mod = index;
-                    view = View::ModDetails;
-                    hub.open();
-                }
-            }
-        }
 
         if (pending_checkpoint_save) {
             pending_checkpoint_save = false;
@@ -666,4 +643,4 @@ void load(openrac::Mod& mod) {
     mod.info("QoL Hub active in one native RAC1 page");
 }
 
-OPENRAC_MOD_CPP("better-pause-menu", "0.6.2", load)
+OPENRAC_MOD_CPP("better-pause-menu", "0.7.0", load)
