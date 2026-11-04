@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "author": "mo",
   "license": "GPL-3.0-or-later",
   "api": "1.9",
@@ -12,7 +12,7 @@
   },
   "id": "better-pause-menu",
   "name": "Better Pause Menu",
-  "description": "Single-page native RAC1 QoL Hub for status, collectibles, missions, fast travel, checkpoints, saves, restart and vendor information; no duplicate gameplay HUD and no cutscene skipping.",
+  "description": "Single-page native RAC1 QoL Hub with working pause-menu fast travel to all unlocked planets, status, collectibles, missions, checkpoints, saves, restart and vendor information.",
   "hooks": [
     "rac1.gold_bolt.count_collected",
     "rac1.planet.unlock",

@@ -50,6 +50,28 @@ bool playing(const openrac_play_status& s) {
     return s.level >= 0 && s.phase == OPENRAC_PLAY_PLAYING;
 }
 
+bool travel_allowed(const openrac_play_status& s) {
+    return s.level >= 0
+        && (s.phase == OPENRAC_PLAY_PLAYING
+            || s.phase == OPENRAC_PLAY_SCENE
+            || s.phase == OPENRAC_PLAY_MENU);
+}
+
+void refresh_unlocked_planets() {
+    const auto base = g->relocate(0x0013DE48u);
+    const auto status = g->play_status();
+    for (int level = 1; level <= 18; ++level) {
+        const bool unlocked = g->memory().read<std::uint8_t>(
+            base + static_cast<openrac::gaddr>(level)
+        ) != 0;
+        if ((unlocked || level == status.level)
+            && std::find(visited.begin(), visited.end(), level) == visited.end()) {
+            visited.push_back(level);
+        }
+    }
+    std::sort(visited.begin(), visited.end());
+}
+
 int save_slot_count() {
     for (int i = 0; i < 16; ++i) {
         openrac_save_info info{};
@@ -116,7 +138,7 @@ void handle_choose(const openrac::UiPage& page, int item) {
             if (item == back_item) {
                 view = View::Hub;
             } else if (!visited.empty() && item >= 0 && item < count
-                       && visited[item] != status.level && playing(status)) {
+                       && visited[item] != status.level && travel_allowed(status)) {
                 pending_level = visited[item];
                 view = View::Hub;
                 page.back();
@@ -235,6 +257,7 @@ openrac::UiContent content_for_view() {
             break;
 
         case View::Travel:
+            refresh_unlocked_planets();
             c.title = "Fast Travel";
             if (visited.empty()) {
                 c.items = {
@@ -245,12 +268,12 @@ openrac::UiContent content_for_view() {
                 for (int level : visited) {
                     c.items.push_back(openrac::UiItem::button(
                         g->level_name(level) + (level == status.level ? " (current)" : ""),
-                        level != status.level && playing(status)
+                        level != status.level && travel_allowed(status)
                     ));
                 }
                 c.items.push_back(openrac::UiItem::button("Back to QoL Hub", true));
             }
-            c.footer = {"Only planets visited in this session are available"};
+            c.footer = {"All unlocked planets are available directly from the pause menu"};
             break;
 
         case View::Checkpoints: {
@@ -421,10 +444,13 @@ void load(openrac::Mod& mod) {
             capture_checkpoint(status);
         }
 
-        if (pending_level >= 0 && status.phase == OPENRAC_PLAY_PLAYING) {
+        if (pending_level >= 0 && travel_allowed(status)) {
             const int level = pending_level;
             pending_level = -1;
-            g->play_travel(level);
+            const int result = g->play_travel(level);
+            if (result != OPENRAC_HOOK_OK && result != OPENRAC_HOOK_TAKEN) {
+                pending_level = level;
+            }
         }
         if (pending_restart && playing(status)) {
             pending_restart = false;
@@ -440,4 +466,4 @@ void load(openrac::Mod& mod) {
     mod.info("QoL Hub active in one native RAC1 page");
 }
 
-OPENRAC_MOD_CPP("better-pause-menu", "0.4.0", load)
+OPENRAC_MOD_CPP("better-pause-menu", "0.4.1", load)
