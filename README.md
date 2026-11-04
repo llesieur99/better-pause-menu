@@ -43,3 +43,8 @@ Those should stay disabled when the Hub is enabled.
 - The player's own installed game data is used at runtime.
 
 Built for OpenRAC RAC1 PAL/NTSC-U. AI-assisted implementation. GPL-3.0-or-later.
+
+
+## 0.8.5 always-visible Options information
+
+The original left Options information box now shows live QoL status immediately whenever Pause → Options is open: planet, health, deaths, checkpoint, enabled mods and collectible progress. QoL Hub and Collectibles remain direct central menu entries. The original right-side game artwork/preview is not replaced or rewritten.
