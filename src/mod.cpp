@@ -13,7 +13,7 @@ void summary(){
     openrac_pose pose{}; pose.size=sizeof pose;
     const bool hero=g->hero_pose(pose);
     std::string text=status.level>=0 ? g->level_name(status.level) : std::string("No planet");
-    text+=" | "+qol::hp_line(hero?pose.health:0,g->has_world()?g->bolts():0);
+    text+=" | "+qol::hp_line(hero?pose.health:0);
     if(g->has_notice()) g->play_notice(text);
 }
 }
@@ -32,7 +32,7 @@ void load(openrac::Mod& mod){
             c.title="QoL Hub";
             c.items={
                 openrac::UiItem::text(status.level>=0 ? "Planet: "+mod.level_name(status.level) : "Planet: -"),
-                openrac::UiItem::text(qol::hp_line(hero?pose.health:0, mod.has_world()?mod.bolts():0)),
+                openrac::UiItem::text(qol::hp_line(hero?pose.health:0)),
                 openrac::UiItem::button("Restart current planet",status.level>=0),
                 openrac::UiItem::button("Skip current cutscene",scene)
             };
@@ -57,6 +57,9 @@ void load(openrac::Mod& mod){
         if(qol::combo_pressed(now,previous,show)) action=1;
         if(qol::combo_pressed(now,previous,restart)) action=2;
         if(qol::combo_pressed(now,previous,skip)) action=3;
+        if((now&show)==show) qol::consume_buttons(report,show);
+        if((now&restart)==restart) qol::consume_buttons(report,restart);
+        if((now&skip)==skip) qol::consume_buttons(report,skip);
         previous=now;
     });
 
@@ -76,4 +79,4 @@ void load(openrac::Mod& mod){
         }
     });
 }
-OPENRAC_MOD_CPP("better-pause-menu","0.1.1",load)
+OPENRAC_MOD_CPP("better-pause-menu","0.1.2",load)
