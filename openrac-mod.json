@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "0.8.0",
+  "version": "0.8.4",
   "author": "mo",
   "license": "GPL-3.0-or-later",
   "api": "1.9",
@@ -12,7 +12,7 @@
   },
   "id": "better-pause-menu",
   "name": "Better Pause Menu",
-  "description": "Native RAC1 Options-integrated QoL Hub with live left status and its own right-side artwork, consolidating the 12 QoL projects: live status, collectibles, missions, checkpoints, death/restart and vendor UI, plus integrated Fast Travel and Save Manager while those two remain standalone packages.",
+  "description": "Native RAC1 Options menu with real live Status and Collectibles panels, central QoL controls, and the original game preview image left untouched.",
   "hooks": [
     "rac1.gold_bolt.count_collected",
     "rac1.planet.unlock",

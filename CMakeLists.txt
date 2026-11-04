@@ -35,6 +35,3 @@ endif()
 get_target_property(mod_package better_pause_menu OPENRAC_MOD_PACKAGE_DIR)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" "${mod_package}/LICENSE" COPYONLY)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/README.md" "${mod_package}/README.md" COPYONLY)
-file(MAKE_DIRECTORY "${mod_package}/assets")
-configure_file("${CMAKE_CURRENT_SOURCE_DIR}/assets/qol-preview.clut"
-               "${mod_package}/assets/qol-preview.clut" COPYONLY)

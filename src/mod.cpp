@@ -60,10 +60,9 @@ std::uint16_t previous_buttons = 0;
 
 openrac::rac1::Save_RequestAutosave::fn request_autosave = nullptr;
 
-std::vector<std::uint8_t> qol_preview;
 openrac::gaddr pause_texts = 0;
 std::int16_t qol_pause_text_id = 0;
-bool qol_preview_active = false;
+std::int16_t collectibles_pause_text_id = 0;
 
 struct ScreenRect {
     openrac::gaddr screen = 0;
@@ -72,11 +71,12 @@ struct ScreenRect {
 
 struct OptionsLayoutState {
     openrac::gaddr page = 0;
-    ScreenRect title, hint, image, list, controls;
-    ScreenRect bottom_left, bottom_right;
+    ScreenRect panel_left, panel_right;
     openrac::gaddr slot_left = 0, slot_right = 0;
-    openrac::gaddr old_slot_left = 0, old_slot_right = 0;
-    std::vector<std::uint8_t> image_before;
+    std::vector<std::uint8_t> left_rows_before;
+    std::vector<std::uint8_t> right_rows_before;
+    std::int32_t left_cursor_before = 0;
+    std::int32_t right_cursor_before = 0;
     bool active = false;
 };
 
@@ -88,7 +88,6 @@ constexpr openrac::gaddr kMenuSystem = 0x001D5F70u;
 constexpr openrac::gaddr kPortStatics = 0xE0200000u;
 constexpr openrac::gaddr kPortStaticsEnd = 0xE0300000u;
 constexpr std::int16_t kPauseItemText = 0x7D00;
-constexpr std::int16_t kPauseTitleText = 0x7D04;
 constexpr openrac::gaddr kTextBytes = 64u;
 constexpr openrac::gaddr kItemBytes = 0x0Cu;
 
@@ -218,37 +217,48 @@ bool printable_text(openrac::gaddr at) {
     return n > 0 && n < 40;
 }
 
+bool text_is(openrac::gaddr at, const char* value) {
+    if (at < kPortStatics || at >= kPortStaticsEnd) return false;
+    return std::strcmp(static_cast<const char*>(g->memory().pointer(at)), value) == 0;
+}
+
 void locate_pause_texts() {
     if (pause_texts != 0) return;
     static constexpr char kNeedle[] = "QoL Hub";
     const auto memory = g->memory();
+    openrac::gaddr fallback_at = 0;
     for (openrac::gaddr at = kPortStatics; at + sizeof(kNeedle) < kPortStaticsEnd; ++at) {
         if (std::memcmp(memory.pointer(at), kNeedle, sizeof(kNeedle)) != 0) continue;
-        if (at + kTextBytes < kPortStaticsEnd && printable_text(at + kTextBytes)) {
-            pause_texts = at;
-            qol_pause_text_id = kPauseItemText;
-        } else if (at >= kPortStatics + kTextBytes && printable_text(at - kTextBytes)) {
-            pause_texts = at - kTextBytes;
-            qol_pause_text_id = kPauseItemText + 1;
-        } else {
-            pause_texts = at;
-            qol_pause_text_id = kPauseItemText;
+        if (fallback_at == 0) fallback_at = at;
+        for (int i = 0; i < 4; ++i) {
+            if (at < kPortStatics + static_cast<openrac::gaddr>(i) * kTextBytes) continue;
+            const auto base = at - static_cast<openrac::gaddr>(i) * kTextBytes;
+            bool four_labels = true;
+            int hub_slot = -1, collectibles_slot = -1;
+            for (int j = 0; j < 4; ++j) {
+                const auto slot = base + static_cast<openrac::gaddr>(j) * kTextBytes;
+                if (!printable_text(slot)) {
+                    four_labels = false;
+                    break;
+                }
+                if (text_is(slot, "QoL Hub")) hub_slot = j;
+                if (text_is(slot, "Collectibles")) collectibles_slot = j;
+            }
+            if (!four_labels || hub_slot < 0 || collectibles_slot < 0) continue;
+            pause_texts = base;
+            qol_pause_text_id = static_cast<std::int16_t>(kPauseItemText + hub_slot);
+            collectibles_pause_text_id = static_cast<std::int16_t>(kPauseItemText + collectibles_slot);
+            g->info("QoL Hub: native Options text table connected");
+            return;
         }
-        g->info("QoL Hub: native Options text table connected");
-        return;
     }
-}
-
-void load_qol_preview() {
-    qol_preview.clear();
-    const auto root = plugin_root_path();
-    if (root.empty()) return;
-    std::ifstream in(root / "better-pause-menu" / "assets" / "qol-preview.clut", std::ios::binary);
-    if (!in) return;
-    qol_preview.assign(std::istreambuf_iterator<char>(in), {});
-    if (qol_preview.size() != 0x10420u) {
-        g->warn("QoL Hub: preview asset has an unexpected size");
-        qol_preview.clear();
+    // Compatibility fallback for a port with fewer direct pause items. Do not take the first
+    // arbitrary string hit until the full text-table scan above has failed.
+    if (fallback_at != 0) {
+        pause_texts = fallback_at;
+        qol_pause_text_id = kPauseItemText;
+        collectibles_pause_text_id = kPauseItemText + 1;
+        g->info("QoL Hub: native Options text table connected (fallback)");
     }
 }
 
@@ -302,36 +312,6 @@ int enabled_mod_count() {
     return count;
 }
 
-openrac::gaddr find_options_hint_screen(openrac::gaddr page, int count) {
-    const auto memory = g->memory();
-    for (openrac::gaddr off = 0x44; off < 0x7C; off += 4) {
-        const auto screen = memory.read<std::uint32_t>(page + off);
-        if (screen == 0) continue;
-        const auto list = memory.read<std::uint32_t>(screen + 0x34);
-        if (list < 0x100000u || list >= 0x2000000u || (list & 3u) != 0) continue;
-        bool ok = true;
-        for (int i = 0; i < count; ++i) {
-            const auto id = memory.read<std::int32_t>(list + 4u * static_cast<openrac::gaddr>(i));
-            if (id <= 0 || id >= 0x8000) { ok = false; break; }
-        }
-        if (ok && memory.read<std::int32_t>(list + 4u * static_cast<openrac::gaddr>(count)) == 0)
-            return screen;
-    }
-    return 0;
-}
-
-openrac::gaddr find_options_image(openrac::gaddr page) {
-    const auto memory = g->memory();
-    for (openrac::gaddr off = 0x44; off < 0x7C; off += 4) {
-        const auto screen = memory.read<std::uint32_t>(page + off);
-        if (screen == 0) continue;
-        if (memory.read<std::int32_t>(screen + 0x38) == 0x93
-            && memory.read<std::int32_t>(screen + 0x3C) == 0x85
-            && memory.read<std::uint32_t>(screen + 0x30) != 0) return screen;
-    }
-    return 0;
-}
-
 openrac::gaddr item_page(openrac::gaddr items, int index) {
     if (items == 0 || index < 0) return 0;
     return g->memory().read<std::uint32_t>(
@@ -339,23 +319,49 @@ openrac::gaddr item_page(openrac::gaddr items, int index) {
     );
 }
 
+bool page_has_screen(openrac::gaddr page, openrac::gaddr screen) {
+    if (page == 0 || screen == 0) return false;
+    const auto memory = g->memory();
+    for (openrac::gaddr off = 0x44; off < 0x7C; off += 4) {
+        if (memory.read<std::uint32_t>(page + off) == screen) return true;
+    }
+    return false;
+}
+
+void snapshot_list_rows(openrac::gaddr list, std::vector<std::uint8_t>& bytes, std::int32_t& cursor) {
+    bytes.clear();
+    if (list == 0) return;
+    auto memory = g->memory();
+    const auto rows = memory.read<std::uint32_t>(list + 0x34);
+    if (rows == 0) return;
+    constexpr std::size_t kBytes = 0x18u * 6u;
+    bytes.resize(kBytes);
+    std::memcpy(bytes.data(), memory.pointer(rows), kBytes);
+    cursor = memory.read<std::int32_t>(list + 0x38);
+}
+
+void restore_list_rows(openrac::gaddr list, const std::vector<std::uint8_t>& bytes, std::int32_t cursor) {
+    if (list == 0 || bytes.empty()) return;
+    auto memory = g->memory();
+    const auto rows = memory.read<std::uint32_t>(list + 0x34);
+    if (rows == 0) return;
+    std::memcpy(memory.pointer(rows), bytes.data(), bytes.size());
+    memory.write<std::int32_t>(list + 0x38, cursor);
+}
+
 void configure_status_rows(openrac::gaddr list, int first_text, const std::vector<std::string>& lines) {
     if (list == 0 || pause_texts == 0) return;
     auto memory = g->memory();
     const auto rows = memory.read<std::uint32_t>(list + 0x34);
     if (rows == 0) return;
-    constexpr int kEmptyText = 0x7D0E;
-    put_pause_text(kEmptyText, "");
-    const int n = std::min<int>(3, static_cast<int>(lines.size()));
+    const int n = std::min<int>(5, static_cast<int>(lines.size()));
     for (int i = 0; i < n; ++i) {
         const auto row = rows + 0x18u * static_cast<openrac::gaddr>(i);
         put_pause_text(first_text + i, lines[static_cast<std::size_t>(i)]);
         memory.write<std::int32_t>(row + 0x00, first_text + i);
-        const auto value = memory.read<std::uint32_t>(row + 0x04);
-        if (value != 0) memory.write<std::int32_t>(value, 1);
-        memory.write<std::int32_t>(row + 0x08, kEmptyText);
-        memory.write<std::int32_t>(row + 0x0C, kEmptyText);
-        memory.write<std::int32_t>(row + 0x10, kEmptyText);
+        memory.write<std::int32_t>(row + 0x08, 0);
+        memory.write<std::int32_t>(row + 0x0C, 0);
+        memory.write<std::int32_t>(row + 0x10, 0);
         memory.write<std::int32_t>(row + 0x14, 0);
     }
     memory.write<std::int32_t>(rows + 0x18u * static_cast<openrac::gaddr>(n), 0);
@@ -364,31 +370,19 @@ void configure_status_rows(openrac::gaddr list, int first_text, const std::vecto
 
 void restore_options_layout() {
     if (!options_layout.active) return;
-    auto memory = g->memory();
-    restore_rect(options_layout.title);
-    restore_rect(options_layout.hint);
-    restore_rect(options_layout.image);
-    restore_rect(options_layout.list);
-    restore_rect(options_layout.controls);
-    restore_rect(options_layout.bottom_left);
-    restore_rect(options_layout.bottom_right);
-    if (options_layout.page != 0) {
-        memory.write<std::uint32_t>(options_layout.page + 0x58, options_layout.old_slot_left);
-        memory.write<std::uint32_t>(options_layout.page + 0x5C, options_layout.old_slot_right);
-    }
-    if (options_layout.image.screen != 0) {
-        const auto buffer = memory.read<std::uint32_t>(options_layout.image.screen + 0x48);
-        if (buffer != 0 && options_layout.image_before.size() == 0x10420u) {
-            std::memcpy(memory.pointer(buffer), options_layout.image_before.data(), options_layout.image_before.size());
-        }
-        // Force the game's stream loader to refresh the newly selected native preview. This is what
-        // restores Camera/Kamera's original symbol after leaving the QoL row.
-        memory.write<std::int32_t>(options_layout.image.screen + 0x44, 0);
-        memory.write<std::int32_t>(options_layout.image.screen + 0x50, -1);
-        memory.write<std::int32_t>(options_layout.image.screen + 0x54, -1);
-    }
+    restore_rect(options_layout.panel_left);
+    restore_rect(options_layout.panel_right);
+    restore_list_rows(
+        options_layout.slot_left,
+        options_layout.left_rows_before,
+        options_layout.left_cursor_before
+    );
+    restore_list_rows(
+        options_layout.slot_right,
+        options_layout.right_rows_before,
+        options_layout.right_cursor_before
+    );
     options_layout = OptionsLayoutState{};
-    qol_preview_active = false;
 }
 
 void decorate_options_page() {
@@ -403,80 +397,58 @@ void decorate_options_page() {
     const auto list = memory.read<std::uint32_t>(page + 0x40);
     if (list == 0) { restore_options_layout(); return; }
     const auto items = memory.read<std::uint32_t>(list + 0x34);
-    if (items == 0) { restore_options_layout(); return; }
+    if (items == 0 || pause_texts == 0) { restore_options_layout(); return; }
 
-    int count = 0, qol_index = -1, other_mod_index = -1;
+    int count = 0, qol_index = -1, collectibles_index = -1;
     while (count < 16) {
         const auto id = memory.read<std::int16_t>(items + kItemBytes * static_cast<openrac::gaddr>(count));
         if (id == 0) break;
         if (id == qol_pause_text_id) qol_index = count;
-        if (id >= kPauseItemText && id < kPauseTitleText && id != qol_pause_text_id) other_mod_index = count;
+        if (id == collectibles_pause_text_id) collectibles_index = count;
         ++count;
     }
-    if (qol_index < 0 || count == 0) { restore_options_layout(); return; }
-
-    const int selected = memory.read<std::int32_t>(list + 0x40);
-    const auto hint = find_options_hint_screen(page, count);
-    const auto image = find_options_image(page);
-
-    // Keep a proper QoL description bound to the row even before it is selected.
-    if (pause_texts != 0 && hint != 0) {
-        const auto hints = memory.read<std::uint32_t>(hint + 0x34);
-        if (hints != 0) {
-            put_pause_text(0x7D0D, "QoL Hub - Status, Saves, Travel and Mod tools");
-            memory.write<std::int32_t>(hints + 4u * static_cast<openrac::gaddr>(qol_index), 0x7D0D);
-        }
-    }
-
-    if (selected != qol_index || image == 0 || qol_preview.empty()) {
+    if (qol_index < 0 || collectibles_index < 0) {
         restore_options_layout();
         return;
     }
 
+    // The OpenRAC page builder mounts these two genuine RAC1 list screens before the page is
+    // entered, so the game assigns each one a normal panel moby. The mod only supplies geometry
+    // and live row content; it does not replace any original Options screen.
     if (!options_layout.active || options_layout.page != page) {
         restore_options_layout();
-        options_layout.page = page;
-        options_layout.title = capture_rect(memory.read<std::uint32_t>(page + 0x44));
-        options_layout.hint = capture_rect(hint);
-        options_layout.image = capture_rect(image);
-        options_layout.list = capture_rect(list);
-        options_layout.controls = capture_rect(memory.read<std::uint32_t>(page + 0x54));
-        options_layout.old_slot_left = memory.read<std::uint32_t>(page + 0x58);
-        options_layout.old_slot_right = memory.read<std::uint32_t>(page + 0x5C);
-
         const auto own_page = item_page(items, qol_index);
+        const auto collect_page = item_page(items, collectibles_index);
         const auto own_list = own_page != 0 ? memory.read<std::uint32_t>(own_page + 0x40) : 0;
-        const auto other_page = item_page(items, other_mod_index);
-        const auto other_list = other_page != 0 ? memory.read<std::uint32_t>(other_page + 0x40) : 0;
-        options_layout.bottom_left = capture_rect(own_list);
-        options_layout.bottom_right = capture_rect(other_list);
-        options_layout.slot_left = own_list;
-        options_layout.slot_right = other_list;
-
-        const auto buffer = memory.read<std::uint32_t>(image + 0x48);
-        if (buffer != 0) {
-            options_layout.image_before.resize(0x10420u);
-            std::memcpy(options_layout.image_before.data(), memory.pointer(buffer), options_layout.image_before.size());
+        const auto collect_list = collect_page != 0 ? memory.read<std::uint32_t>(collect_page + 0x40) : 0;
+        if (own_list == 0 || collect_list == 0
+            || !page_has_screen(page, own_list) || !page_has_screen(page, collect_list)) {
+            return;
         }
+
+        options_layout.page = page;
+        options_layout.slot_left = own_list;
+        options_layout.slot_right = collect_list;
+        options_layout.panel_left = capture_rect(own_list);
+        options_layout.panel_right = capture_rect(collect_list);
+        snapshot_list_rows(
+            own_list,
+            options_layout.left_rows_before,
+            options_layout.left_cursor_before
+        );
+        snapshot_list_rows(
+            collect_list,
+            options_layout.right_rows_before,
+            options_layout.right_cursor_before
+        );
         options_layout.active = true;
-        g->info("QoL Hub: first-draft native Options layout active");
+        g->info("QoL Hub: two live native information panels visible in Options");
     }
 
-    // Exact panel geometry of the supplied 512x448 first draft, mapped onto RAC1's own screens.
-    set_rect(options_layout.title.screen, 136, 15, 241, 55);
-    set_rect(options_layout.image.screen, 23, 88, 162, 236);       // left QoL artwork/checklist
-    set_rect(options_layout.hint.screen, 328, 88, 163, 236);       // right live collectibles
-    set_rect(options_layout.list.screen, 195, 82, 122, 245);       // native, fully interactive list
-    set_rect(options_layout.controls.screen, 194, 346, 124, 66);   // native A/Back hints
-
-    if (options_layout.slot_left != 0) {
-        memory.write<std::uint32_t>(page + 0x58, options_layout.slot_left);
-        set_rect(options_layout.slot_left, 23, 346, 162, 66);
-    }
-    if (options_layout.slot_right != 0 && options_layout.slot_right != options_layout.slot_left) {
-        memory.write<std::uint32_t>(page + 0x5C, options_layout.slot_right);
-        set_rect(options_layout.slot_right, 328, 346, 163, 66);
-    }
+    // New elements only. The original help panel, preview image, title, central list and
+    // choose/back controls keep their native geometry and content.
+    set_rect(options_layout.slot_left, 23, 332, 162, 80);
+    set_rect(options_layout.slot_right, 328, 332, 163, 80);
 
     const auto status = g->play_status();
     openrac_pose pose{};
@@ -484,47 +456,22 @@ void decorate_options_page() {
     const bool hero = g->hero_pose(pose);
     const bool checkpoint = !snapshot.empty() && snapshot_loads == status.loads;
     const std::string planet = status.level >= 0 ? g->level_name(status.level) : "-";
-    const int hp = hero ? pose.health : 0;
-
-    if (options_layout.slot_left != 0) {
-        configure_status_rows(options_layout.slot_left, 0x7D05, {
-            "Planet: " + planet,
-            "HP: " + std::to_string(hp),
-            "Bolts: " + std::to_string(g->bolts())
-        });
-    }
-    if (options_layout.slot_right != 0 && options_layout.slot_right != options_layout.slot_left) {
-        configure_status_rows(options_layout.slot_right, 0x7D0A, {
-            "Tode: " + std::to_string(deaths),
-            std::string("Checkpoint: ") + (checkpoint ? "Aktiv" : "Keiner"),
-            "Mods: " + std::to_string(enabled_mod_count()) + " Aktiv"
-        });
-    }
+    configure_status_rows(options_layout.slot_left, 0x7D05, {
+        "STATUS",
+        "Planet: " + planet,
+        "HP " + std::to_string(hero ? pose.health : 0) + " | Bolts " + std::to_string(g->bolts()),
+        "Tode " + std::to_string(deaths) + " | CP " + (checkpoint ? "Aktiv" : "Keiner") + " | Mods " + std::to_string(enabled_mod_count())
+    });
 
     int gold_here = 0, info_here = 0, skill_here = 0;
     collectible_counts(gold_here, info_here, skill_here);
     auto gold_fn = g->original<openrac::rac1::GoldBolts_CountCollected>();
     const int gold_total = gold_fn != nullptr ? gold_fn() : 0;
-    if (hint != 0 && pause_texts != 0) {
-        const auto hints = memory.read<std::uint32_t>(hint + 0x34);
-        if (hints != 0) {
-            put_pause_text(0x7D0D,
-                "Collectibles\nBolts " + std::to_string(g->bolts())
-                + "\nGold Bolts " + std::to_string(gold_total) + "/40"
-                + "\nInfobots hier " + std::to_string(info_here)
-                + "\nSkillpunkte hier " + std::to_string(skill_here));
-            memory.write<std::int32_t>(hints + 4u * static_cast<openrac::gaddr>(qol_index), 0x7D0D);
-        }
-    }
-
-    const auto buffer = memory.read<std::uint32_t>(image + 0x48);
-    if (buffer != 0) {
-        std::memcpy(memory.pointer(buffer), qol_preview.data(), qol_preview.size());
-        memory.write<std::int32_t>(image + 0x44, 2);
-        memory.write<std::int32_t>(image + 0x50, qol_index);
-        memory.write<std::int32_t>(image + 0x54, -1);
-        qol_preview_active = true;
-    }
+    configure_status_rows(options_layout.slot_right, 0x7D0A, {
+        "COLLECTIBLES",
+        "Gold " + std::to_string(gold_total) + "/40 | hier " + std::to_string(gold_here),
+        "Info " + std::to_string(info_here) + " | Skill " + std::to_string(skill_here)
+    });
 }
 
 int save_slot_count() {
@@ -927,7 +874,6 @@ void load(openrac::Mod& mod) {
     }
 
     refresh_plugin_config();
-    load_qol_preview();
 
     hub = mod.ui_page([](const openrac::UiPage& page, const openrac::UiEvent& event) {
         if (event.is(OPENRAC_UI_SHOW)) { refresh_plugin_config(); view = View::Hub; }
@@ -946,6 +892,9 @@ void load(openrac::Mod& mod) {
             mod.info("Pause option slots full; QoL Hub remains available through L1+R1+Up");
         }
     }
+
+    // Apply the native Options layout after RAC1 has completed its own menu update for the tick.
+    mod.on_frame([] { decorate_options_page(); });
 
     mod.on_pad([](int port, std::uint8_t* report, int size) {
         if (port != 0 || report == nullptr || size < 2) return;
@@ -985,8 +934,6 @@ void load(openrac::Mod& mod) {
             was_alive = true;
         }
 
-        decorate_options_page();
-
         if (pending_open) {
             pending_open = false;
             view = View::Hub;
@@ -1023,4 +970,4 @@ void load(openrac::Mod& mod) {
     mod.info("QoL Hub active in one native RAC1 page");
 }
 
-OPENRAC_MOD_CPP("better-pause-menu", "0.8.0", load)
+OPENRAC_MOD_CPP("better-pause-menu", "0.8.4", load)

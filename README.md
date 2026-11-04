@@ -1,12 +1,12 @@
 # Better Pause Menu
 
-Better Pause Menu 0.8.0 turns **Pause → Options → QoL Hub** into the central in-game interface for the local QoL mods.
+Better Pause Menu 0.8.4 turns **Pause → Options → QoL Hub** into the central in-game interface for the local QoL mods.
 
 The hub uses OpenRAC's native RAC1 menu UI. Controller shortcut combinations are no longer required for the integrated tools. The status information is part of the same game menu frame rather than a custom overlay or separate Status page.
 
 ## Native Options presentation
 
-When **QoL Hub** is highlighted on the real pause **Options** screen, Better Pause Menu now reuses the game's own three-column presentation instead of presenting only a generic mod list: the centre remains the native Options list, the left description panel shows live planet/HP/bolts/Gold-Bolt/checkpoint status, and the right picture panel shows an original QoL Hub graphic shipped by this mod. No Ratchet & Clank image or disc asset is included.
+On the real RAC1 **Options** screen, Better Pause Menu adds two extra native menu panels without replacing any existing game element. The original help panel, Camera/Kamera preview, title, central Options list and choose/back controls remain unchanged. A new lower-left Status panel shows live planet, HP, bolts, deaths, checkpoint and enabled-mod information, while a new lower-right Collectibles panel shows live Gold Bolt, Infobot and Skill Point information.
 
 ## Integrated pages
 
@@ -61,3 +61,8 @@ The QoL Hub is now the central UI for the 12 QoL projects created together:
 - New Game Plus Improvements — continues as background logic; its status is visible in the Hub.
 
 The absorbed UI-only mods no longer need to be enabled alongside Better Pause Menu. Keeping them disabled avoids duplicate hotkeys, duplicate pages and duplicate hooks. Fast Travel and Save Manager are intentionally still maintained separately for players who want only those features.
+
+
+## 0.8.4 live Options panels
+
+Pause → Options now contains real live RAC1 menu elements rather than baked artwork. The left panel shows Status (planet, health, bolts, deaths, checkpoint and enabled mods). A separate Collectibles panel shows Gold Bolts, local Gold Bolts, Infobots and skill triggers. The original right-side game preview image is not replaced or rewritten.
