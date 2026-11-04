@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "mo",
   "license": "GPL-3.0-or-later",
   "api": "1.9",
@@ -12,5 +12,5 @@
   },
   "id": "better-pause-menu",
   "name": "Better Pause Menu",
-  "description": "Adds a compact QoL Hub to Pause > Options with live level, health and bolt status plus restart and cutscene-skip actions."
+  "description": "Adds a compact QoL Hub to Pause > Options, with controller fallback when the game's two mod pause slots are already occupied."
 }
