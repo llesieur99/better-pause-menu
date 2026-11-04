@@ -1,68 +1,45 @@
-# Better Pause Menu
+# Better Pause Menu / QoL Hub
 
-Better Pause Menu 0.8.4 turns **Pause → Options → QoL Hub** into the central in-game interface for the local QoL mods.
+Better Pause Menu turns **Pause → Options → QoL Hub** into the central native RAC1 interface for quality-of-life tools.
 
-The hub uses OpenRAC's native RAC1 menu UI. Controller shortcut combinations are no longer required for the integrated tools. The status information is part of the same game menu frame rather than a custom overlay or separate Status page.
+It uses OpenRAC's native menu UI. It does not replace the game's original preview image and it does not add a duplicate gameplay bolt/health overlay.
 
-## Native Options presentation
+## Integrated features
 
-On the real RAC1 **Options** screen, Better Pause Menu adds two extra native menu panels without replacing any existing game element. The original help panel, Camera/Kamera preview, title, central Options list and choose/back controls remain unchanged. A new lower-left Status panel shows live planet, HP, bolts, deaths, checkpoint and enabled-mod information, while a new lower-right Collectibles panel shows live Gold Bolt, Infobot and Skill Point information.
+- **Status** — current planet, health, deaths, checkpoint state and latest progress.
+- **Collectibles** — Gold Bolts, local remaining Gold Bolts, Infobots and skill-point triggers.
+- **Missions** — lightweight current objective and recent progress events.
+- **Fast Travel** — travel directly from the pause menu to unlocked planets.
+- **Checkpoints** — temporary quick checkpoint create/restore plus optional warm auto-checkpoint.
+- **Save Manager** — inspect real save slots and, on OpenRAC API 1.11+, save the active slot.
+- **Gameplay Tools** — restart the current planet and view session deaths.
+- **Vendor Info** — current wallet and last acquired item.
+- **Accessibility status** — reads Accessibility Pack configuration.
+- **Cutscene Manager status** — reads the safe cutscene background module configuration.
 
-## Integrated pages
+## Consolidation
 
-- **Live status** — current planet, health, bolts, deaths, checkpoint state, registered-mod count and latest progress are always visible in the native footer as soon as the hub opens.
-- **Collectibles** — total Gold Bolts plus remaining Gold Bolts, Infobots and skill-point triggers in the current level.
-- **Missions** — current planet, lightweight objective and latest unlock/item progress.
-- **Fast Travel** — travel to planets already visited during the current session.
-- **Checkpoints** — create and restore the current level's temporary quick checkpoint.
-- **Save Manager** — inspect the real save slots and, on OpenRAC API 1.11+, save the active slot.
-- **Gameplay Tools** — restart the current planet and view the session death count. Cutscene handling stays in the dedicated background safety module.
-- **Vendor Info** — current bolt wallet and last acquired item.
+The Hub absorbs the in-game UI/functionality of these earlier standalone projects:
 
-A warm quick checkpoint is also created automatically shortly after a level becomes playable, matching the previous Checkpoint Plus behavior.
+- Better HUD
+- Collectible Tracker
+- Mission Tracker
+- Checkpoint Plus
+- Death Improvements
+- Improved Vendor
 
-## Mod consolidation
+Those should stay disabled when the Hub is enabled.
 
-The hub absorbs the separate hotkey/UI roles of **Better HUD, Collectible Tracker, Mission Tracker, Checkpoint Plus, Death Improvements and Improved Vendor**. Those legacy UI mods should stay disabled when Better Pause Menu is enabled.
+**Fast Travel** and **Save Manager** are also integrated, but remain maintained as standalone packages for players who want only those features.
 
-**Fast Travel** and **Save Manager** are integrated into the Hub but deliberately remain maintained as standalone packages too. Players can therefore install either one without installing the full Hub.
+**Accessibility Pack** and **Cutscene Manager** remain separate background modules because their runtime behavior must continue outside the menu.
 
-**Accessibility Pack, Cutscene Manager and New Game Plus Improvements** remain separate background modules because their behavior runs continuously. Their current status/configuration is shown inside the Hub.
+## Safety
 
-Modern Controls and Multiplayer remain separate native menu integrations.
+- No game assets or disc files are included.
+- Level-ending/progression cutscenes are not skipped by the Hub.
+- Fast Travel only exposes planets that are already unlocked.
+- Save writes target only the game's active save slot.
+- The player's own installed game data is used at runtime.
 
 Built for OpenRAC RAC1 PAL/NTSC-U. AI-assisted implementation. GPL-3.0-or-later.
-
-## In-game settings
-
-The QoL Hub includes a **Settings** page. Automatic warm checkpoints can be switched on or off for the running session. Fast Travel and Save Manager are identified there as dual Hub/standalone features. Background-module values remain controlled by Launcher → Mods and are displayed read-only inside the Hub.
-
-
-## Distribution
-
-No game assets or disc files are included. The mod uses the OpenRAC SDK and the player's own installed game data at runtime.
-
-
-## 12-module consolidation
-
-The QoL Hub is now the central UI for the 12 QoL projects created together:
-
-- Better Pause Menu — the hub itself.
-- Better HUD — absorbed into the always-visible Hub status.
-- Collectible Tracker — absorbed; the main Hub row already shows the live Gold Bolt total.
-- Mission Tracker — absorbed into Missions.
-- Checkpoint Plus — absorbed into Checkpoints and the automatic warm checkpoint.
-- Death Improvements — absorbed into Gameplay Tools and session death statistics.
-- Improved Vendor — absorbed into Vendor Info.
-- Fast Travel — integrated into the Hub **and remains a standalone mod/package**.
-- Save Manager — integrated into the Hub **and remains a standalone mod/package**.
-- Accessibility Pack — continues as a background mod; its live configuration/status is visible in the Hub.
-- Cutscene Manager — continues as a background safety mod; its status is visible in the Hub.
-- New Game Plus Improvements — continues as background logic; its status is visible in the Hub.
-
-The absorbed UI-only mods no longer need to be enabled alongside Better Pause Menu. Keeping them disabled avoids duplicate hotkeys, duplicate pages and duplicate hooks. Fast Travel and Save Manager are intentionally still maintained separately for players who want only those features.
-
-
-## 0.8.4 live Options panels
-
-Pause → Options now contains real live RAC1 menu elements rather than baked artwork. The left panel shows Status (planet, health, bolts, deaths, checkpoint and enabled mods). A separate Collectibles panel shows Gold Bolts, local Gold Bolts, Infobots and skill triggers. The original right-side game preview image is not replaced or rewritten.

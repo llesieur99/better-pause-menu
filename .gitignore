@@ -3,3 +3,8 @@
 /.sdk/
 __pycache__/
 .DS_Store
+build-local/
+build-stage/
+dist-local/
+build-local-*.log
+qol-hub.ini

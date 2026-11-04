@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "0.8.4",
+  "version": "0.8.5",
   "author": "mo",
   "license": "GPL-3.0-or-later",
   "api": "1.9",
@@ -12,7 +12,7 @@
   },
   "id": "better-pause-menu",
   "name": "Better Pause Menu",
-  "description": "Native RAC1 Options menu with real live Status and Collectibles panels, central QoL controls, and the original game preview image left untouched.",
+  "description": "Native RAC1 QoL Hub for status, collectibles, missions, unlocked-planet fast travel, checkpoints, save tools, accessibility and safe cutscene controls.",
   "hooks": [
     "rac1.gold_bolt.count_collected",
     "rac1.planet.unlock",

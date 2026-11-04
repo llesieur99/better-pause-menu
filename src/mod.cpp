@@ -27,7 +27,6 @@ enum class View {
     Vendor,
     Accessibility,
     Cutscenes,
-    NewGamePlus,
     Settings
 };
 
@@ -509,11 +508,11 @@ void handle_choose(const openrac::UiPage& page, int item) {
 
     switch (view) {
         case View::Hub:
-            if (item >= 0 && item <= 10) {
+            if (item >= 0 && item <= 9) {
                 static const View core[] = {
                     View::Collectibles, View::Missions, View::Travel,
                     View::Checkpoints, View::Saves, View::Gameplay, View::Vendor,
-                    View::Accessibility, View::Cutscenes, View::NewGamePlus, View::Settings
+                    View::Accessibility, View::Cutscenes, View::Settings
                 };
                 view = core[item];
             }
@@ -603,10 +602,6 @@ void handle_choose(const openrac::UiPage& page, int item) {
             if (item == 4) view = View::Hub;
             break;
 
-        case View::NewGamePlus:
-            if (item == 3) view = View::Hub;
-            break;
-
         case View::Settings:
             if (item == 0) auto_checkpoint = !auto_checkpoint;
             else if (item == 4) auto_checkpoint = true;
@@ -642,7 +637,6 @@ openrac::UiContent content_for_view() {
                 openrac::UiItem::button("Vendor Info", true),
                 openrac::UiItem::button("Accessibility", true),
                 openrac::UiItem::button("Cutscene Manager", true),
-                openrac::UiItem::button("New Game Plus", true),
                 openrac::UiItem::button("Settings", true)
             };
             c.footer = {
@@ -791,19 +785,6 @@ openrac::UiContent content_for_view() {
                 openrac::UiItem::button("Back to QoL Hub", true)
             };
             c.footer = {"Background safety logic remains separate from the UI hub"};
-            break;
-        }
-
-        case View::NewGamePlus: {
-            const bool enabled = plugin_is_enabled("new-game-plus");
-            c.title = "New Game Plus";
-            c.items = {
-                openrac::UiItem::text(std::string("Background mod: ") + (enabled ? "ACTIVE" : "OFF")),
-                openrac::UiItem::text("Starting bolt bonus: " + std::to_string(plugin_int("new-game-plus", "bonus_bolts", 0))),
-                openrac::UiItem::text("Cutscenes and progression stay native"),
-                openrac::UiItem::button("Back to QoL Hub", true)
-            };
-            c.footer = {"Challenge Mode background logic remains separate"};
             break;
         }
 
@@ -970,4 +951,4 @@ void load(openrac::Mod& mod) {
     mod.info("QoL Hub active in one native RAC1 page");
 }
 
-OPENRAC_MOD_CPP("better-pause-menu", "0.8.4", load)
+OPENRAC_MOD_CPP("better-pause-menu", "0.8.5", load)
