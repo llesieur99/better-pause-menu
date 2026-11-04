@@ -1,8 +1,12 @@
 # Better Pause Menu
 
-Better Pause Menu 0.7.0 turns **Pause → Options → QoL Hub** into the central in-game interface for the local QoL mods.
+Better Pause Menu 0.8.0 turns **Pause → Options → QoL Hub** into the central in-game interface for the local QoL mods.
 
 The hub uses OpenRAC's native RAC1 menu UI. Controller shortcut combinations are no longer required for the integrated tools. The status information is part of the same game menu frame rather than a custom overlay or separate Status page.
+
+## Native Options presentation
+
+When **QoL Hub** is highlighted on the real pause **Options** screen, Better Pause Menu now reuses the game's own three-column presentation instead of presenting only a generic mod list: the centre remains the native Options list, the left description panel shows live planet/HP/bolts/Gold-Bolt/checkpoint status, and the right picture panel shows an original QoL Hub graphic shipped by this mod. No Ratchet & Clank image or disc asset is included.
 
 ## Integrated pages
 
