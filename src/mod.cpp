@@ -9,17 +9,21 @@
 #include "logic.hpp"
 
 namespace {
-openrac::Mod* g = nullptr;
+enum class View {
+    Hub,
+    Status,
+    Collectibles,
+    Missions,
+    Travel,
+    Checkpoints,
+    Saves,
+    Gameplay,
+    Vendor
+};
 
+openrac::Mod* g = nullptr;
 openrac::UiPage hub;
-openrac::UiPage status_page;
-openrac::UiPage collectibles_page;
-openrac::UiPage missions_page;
-openrac::UiPage travel_page;
-openrac::UiPage checkpoint_page;
-openrac::UiPage saves_page;
-openrac::UiPage gameplay_page;
-openrac::UiPage vendor_page;
+View view = View::Hub;
 
 std::vector<int> visited;
 std::vector<std::uint8_t> snapshot;
@@ -37,6 +41,8 @@ bool pending_restart = false;
 bool pending_checkpoint_save = false;
 bool pending_checkpoint_load = false;
 bool pending_autosave = false;
+bool pending_open = false;
+std::uint16_t previous_buttons = 0;
 
 openrac::rac1::Save_RequestAutosave::fn request_autosave = nullptr;
 
@@ -74,210 +80,242 @@ void capture_checkpoint(const openrac_play_status& status) {
     snapshot_loads = status.loads;
 }
 
-void setup_pages(openrac::Mod& mod) {
-    status_page = mod.ui_page([&mod](const openrac::UiPage& p, const openrac::UiEvent&) {
-        const auto status = mod.play_status();
-        openrac_pose pose{};
-        pose.size = sizeof pose;
-        const bool hero = mod.hero_pose(pose);
+void handle_choose(const openrac::UiPage& page, int item) {
+    const auto status = g->play_status();
 
-        openrac::UiContent c;
-        c.title = "Status";
-        c.items = {
-            openrac::UiItem::text(status.level >= 0 ? "Planet: " + mod.level_name(status.level) : "Planet: -"),
-            openrac::UiItem::text("Health: " + std::to_string(hero ? pose.health : 0)),
-            openrac::UiItem::text("Deaths this session: " + std::to_string(deaths)),
-            openrac::UiItem::text("Progress: " + last_progress)
-        };
-        c.footer = {"Game UI status - no controller shortcut required"};
-        p.set(c);
-    });
-
-    collectibles_page = mod.ui_page([&mod](const openrac::UiPage& p, const openrac::UiEvent&) {
-        int gold = 0, info = 0, skill = 0;
-        collectible_counts(gold, info, skill);
-        auto fn = mod.original<openrac::rac1::GoldBolts_CountCollected>();
-        const int total = fn != nullptr ? fn() : 0;
-        const auto status = mod.play_status();
-
-        openrac::UiContent c;
-        c.title = "Collectibles";
-        c.items = {
-            openrac::UiItem::text(status.level >= 0 ? "Planet: " + mod.level_name(status.level) : "Planet: -"),
-            openrac::UiItem::text("Gold Bolts: " + std::to_string(total) + "/40"),
-            openrac::UiItem::text("Gold Bolts remaining here: " + std::to_string(gold)),
-            openrac::UiItem::text("Infobots remaining here: " + std::to_string(info)),
-            openrac::UiItem::text("Skill triggers here: " + std::to_string(skill))
-        };
-        c.footer = {"All collectible information is now inside the pause menu"};
-        p.set(c);
-    });
-
-    missions_page = mod.ui_page([&mod](const openrac::UiPage& p, const openrac::UiEvent&) {
-        const auto status = mod.play_status();
-        openrac::UiContent c;
-        c.title = "Missions";
-        c.items = {
-            openrac::UiItem::text(status.level >= 0 ? "Planet: " + mod.level_name(status.level) : "Planet: -"),
-            openrac::UiItem::text("Objective: " + objective),
-            openrac::UiItem::text("Latest progress: " + last_progress)
-        };
-        c.footer = {"Campaign information using stable OpenRAC hooks"};
-        p.set(c);
-    });
-
-    travel_page = mod.ui_page([&mod](const openrac::UiPage& p, const openrac::UiEvent& event) {
-        const auto status = mod.play_status();
-        openrac::UiContent c;
-        c.title = "Fast Travel";
-        if (visited.empty()) {
-            c.items = {openrac::UiItem::text("No visited planets yet")};
-        } else {
-            for (int level : visited) {
-                c.items.push_back(openrac::UiItem::button(
-                    mod.level_name(level) + (level == status.level ? " (current)" : ""),
-                    level != status.level && status.phase == OPENRAC_PLAY_PLAYING
-                ));
+    switch (view) {
+        case View::Hub:
+            switch (item) {
+                case 0: view = View::Status; break;
+                case 1: view = View::Collectibles; break;
+                case 2: view = View::Missions; break;
+                case 3: view = View::Travel; break;
+                case 4: view = View::Checkpoints; break;
+                case 5: view = View::Saves; break;
+                case 6: view = View::Gameplay; break;
+                case 7: view = View::Vendor; break;
+                default: break;
             }
-        }
-        c.footer = {"Only planets visited in this session are available"};
-        p.set(c);
+            break;
 
-        if (event.is(OPENRAC_UI_CHOOSE)) {
-            const int index = event.item();
-            if (index >= 0 && index < static_cast<int>(visited.size())
-                && visited[index] != status.level && status.phase == OPENRAC_PLAY_PLAYING) {
-                pending_level = visited[index];
-                p.back();
+        case View::Status:
+            if (item == 4) view = View::Hub;
+            break;
+
+        case View::Collectibles:
+            if (item == 5) view = View::Hub;
+            break;
+
+        case View::Missions:
+            if (item == 3) view = View::Hub;
+            break;
+
+        case View::Travel: {
+            const int count = static_cast<int>(visited.size());
+            const int back_item = visited.empty() ? 1 : count;
+            if (item == back_item) {
+                view = View::Hub;
+            } else if (!visited.empty() && item >= 0 && item < count
+                       && visited[item] != status.level && playing(status)) {
+                pending_level = visited[item];
+                view = View::Hub;
+                page.back();
             }
+            break;
         }
-    });
 
-    checkpoint_page = mod.ui_page([](const openrac::UiPage& p, const openrac::UiEvent& event) {
-        const auto status = g->play_status();
-        const bool valid = !snapshot.empty() && snapshot_loads == status.loads;
-
-        openrac::UiContent c;
-        c.title = "Checkpoints";
-        c.items = {
-            openrac::UiItem::text(valid ? "Quick checkpoint: ready" : "Quick checkpoint: none"),
-            openrac::UiItem::button("Create quick checkpoint", playing(status)),
-            openrac::UiItem::button("Restore quick checkpoint", playing(status) && valid)
-        };
-        c.footer = {"Quick checkpoints last only for the current level load"};
-        p.set(c);
-
-        if (event.is(OPENRAC_UI_CHOOSE)) {
-            if (event.item() == 1 && playing(status)) {
+        case View::Checkpoints: {
+            const bool valid = !snapshot.empty() && snapshot_loads == status.loads;
+            if (item == 1 && playing(status)) {
                 pending_checkpoint_save = true;
-                p.back();
-            } else if (event.item() == 2 && playing(status) && valid) {
+                view = View::Hub;
+                page.back();
+            } else if (item == 2 && playing(status) && valid) {
                 pending_checkpoint_load = true;
-                p.back();
+                view = View::Hub;
+                page.back();
+            } else if (item == 3) {
+                view = View::Hub;
             }
+            break;
         }
-    });
 
-    saves_page = mod.ui_page([&mod](const openrac::UiPage& p, const openrac::UiEvent& event) {
-        openrac::UiContent c;
-        c.title = "Save Manager";
-        const int count = save_slot_count();
-        for (int i = 0; i < count; ++i) {
-            openrac_save_info info{};
-            const int state = mod.save_slot(i, info);
-            std::string text = "Slot " + std::to_string(i + 1) + ": ";
-            if (state == 1) {
-                text += mod.level_name(info.level) + " | " + std::to_string(info.bolts)
-                     + " bolts | " + std::to_string(info.gold_bolts) + " gold";
-            } else {
-                text += "empty";
+        case View::Saves: {
+            const int count = save_slot_count();
+            const int save_item = count;
+            const int back_item = count + 1;
+            const bool can_save = g->has_api_11() && request_autosave != nullptr
+                               && g->save_slot_current() >= 0;
+            if (item == save_item && can_save) {
+                pending_autosave = true;
+                view = View::Hub;
+                page.back();
+            } else if (item == back_item) {
+                view = View::Hub;
             }
-            if (mod.has_api_11() && mod.save_slot_current() == i) text += " | ACTIVE";
-            c.items.push_back(openrac::UiItem::text(text));
+            break;
         }
 
-        const bool can_save = mod.has_api_11() && request_autosave != nullptr
-                           && mod.save_slot_current() >= 0;
-        const int save_item = static_cast<int>(c.items.size());
-        c.items.push_back(openrac::UiItem::button("Save active slot", can_save));
-        c.footer = {can_save ? "Writes only to the game's current active save"
-                             : "Manual save requires an active save and OpenRAC API 1.11+"};
-        p.set(c);
-
-        if (event.is(OPENRAC_UI_CHOOSE) && event.item() == save_item && can_save) {
-            pending_autosave = true;
-            p.back();
-        }
-    });
-
-    gameplay_page = mod.ui_page([&mod](const openrac::UiPage& p, const openrac::UiEvent& event) {
-        const auto status = mod.play_status();
-        openrac::UiContent c;
-        c.title = "Gameplay Tools";
-        c.items = {
-            openrac::UiItem::button("Restart current planet", playing(status)),
-            openrac::UiItem::text("Deaths this session: " + std::to_string(deaths))
-        };
-        c.footer = {"Gameplay actions use the game's native pause UI"};
-        p.set(c);
-
-        if (event.is(OPENRAC_UI_CHOOSE)) {
-            if (event.item() == 0 && playing(status)) {
+        case View::Gameplay:
+            if (item == 0 && playing(status)) {
                 pending_restart = true;
-                p.back();
+                view = View::Hub;
+                page.back();
+            } else if (item == 2) {
+                view = View::Hub;
             }
+            break;
+
+        case View::Vendor:
+            if (item == 2) view = View::Hub;
+            break;
+    }
+}
+
+openrac::UiContent content_for_view() {
+    const auto status = g->play_status();
+    openrac::UiContent c;
+
+    switch (view) {
+        case View::Hub:
+            c.title = "QoL Hub";
+            c.items = {
+                openrac::UiItem::button("Status", true),
+                openrac::UiItem::button("Collectibles", true),
+                openrac::UiItem::button("Missions", true),
+                openrac::UiItem::button("Fast Travel", true),
+                openrac::UiItem::button("Checkpoints", g->has_savestates()),
+                openrac::UiItem::button("Save Manager", true),
+                openrac::UiItem::button("Gameplay Tools", true),
+                openrac::UiItem::button("Vendor Info", true)
+            };
+            c.footer = {"Native RAC1 menu - L1 + R1 + Up opens the hub"};
+            break;
+
+        case View::Status: {
+            openrac_pose pose{};
+            pose.size = sizeof pose;
+            const bool hero = g->hero_pose(pose);
+            c.title = "Status";
+            c.items = {
+                openrac::UiItem::text(status.level >= 0 ? "Planet: " + g->level_name(status.level) : "Planet: -"),
+                openrac::UiItem::text("Health: " + std::to_string(hero ? pose.health : 0)),
+                openrac::UiItem::text("Deaths this session: " + std::to_string(deaths)),
+                openrac::UiItem::text("Progress: " + last_progress),
+                openrac::UiItem::button("Back to QoL Hub", true)
+            };
+            break;
         }
-    });
 
-    vendor_page = mod.ui_page([&mod](const openrac::UiPage& p, const openrac::UiEvent&) {
-        openrac::UiContent c;
-        c.title = "Vendor Info";
-        c.items = {
-            openrac::UiItem::text("Wallet: " + std::to_string(mod.bolts()) + " bolts"),
-            openrac::UiItem::text(last_item >= 0
-                ? "Last acquired item: " + std::to_string(last_item)
-                : "Last acquired item: -")
-        };
-        c.footer = {"Vendor information without a separate shortcut"};
-        p.set(c);
-    });
-
-    hub = mod.ui_page([](const openrac::UiPage& p, const openrac::UiEvent& event) {
-        const auto status = g->play_status();
-        openrac_pose pose{};
-        pose.size = sizeof pose;
-        const bool hero = g->hero_pose(pose);
-
-        openrac::UiContent c;
-        c.title = "QoL Hub";
-        c.items = {
-            openrac::UiItem::text(status.level >= 0 ? "Planet: " + g->level_name(status.level) : "Planet: -"),
-            openrac::UiItem::text("Health: " + std::to_string(hero ? pose.health : 0)),
-            openrac::UiItem::button("Status", true),
-            openrac::UiItem::button("Collectibles", true),
-            openrac::UiItem::button("Missions", true),
-            openrac::UiItem::button("Fast Travel", true),
-            openrac::UiItem::button("Checkpoints", g->has_savestates()),
-            openrac::UiItem::button("Save Manager", true),
-            openrac::UiItem::button("Gameplay Tools", true),
-            openrac::UiItem::button("Vendor Info", true)
-        };
-        c.footer = {"All QoL tools are collected here - no hotkey combinations"};
-        p.set(c);
-
-        if (!event.is(OPENRAC_UI_CHOOSE)) return;
-        switch (event.item()) {
-            case 2: status_page.open(); break;
-            case 3: collectibles_page.open(); break;
-            case 4: missions_page.open(); break;
-            case 5: travel_page.open(); break;
-            case 6: if (g->has_savestates()) checkpoint_page.open(); break;
-            case 7: saves_page.open(); break;
-            case 8: gameplay_page.open(); break;
-            case 9: vendor_page.open(); break;
-            default: break;
+        case View::Collectibles: {
+            int gold = 0, info = 0, skill = 0;
+            collectible_counts(gold, info, skill);
+            auto fn = g->original<openrac::rac1::GoldBolts_CountCollected>();
+            const int total = fn != nullptr ? fn() : 0;
+            c.title = "Collectibles";
+            c.items = {
+                openrac::UiItem::text(status.level >= 0 ? "Planet: " + g->level_name(status.level) : "Planet: -"),
+                openrac::UiItem::text("Gold Bolts: " + std::to_string(total) + "/40"),
+                openrac::UiItem::text("Gold Bolts remaining here: " + std::to_string(gold)),
+                openrac::UiItem::text("Infobots remaining here: " + std::to_string(info)),
+                openrac::UiItem::text("Skill triggers here: " + std::to_string(skill)),
+                openrac::UiItem::button("Back to QoL Hub", true)
+            };
+            break;
         }
-    });
+
+        case View::Missions:
+            c.title = "Missions";
+            c.items = {
+                openrac::UiItem::text(status.level >= 0 ? "Planet: " + g->level_name(status.level) : "Planet: -"),
+                openrac::UiItem::text("Objective: " + objective),
+                openrac::UiItem::text("Latest progress: " + last_progress),
+                openrac::UiItem::button("Back to QoL Hub", true)
+            };
+            break;
+
+        case View::Travel:
+            c.title = "Fast Travel";
+            if (visited.empty()) {
+                c.items = {
+                    openrac::UiItem::text("No visited planets yet"),
+                    openrac::UiItem::button("Back to QoL Hub", true)
+                };
+            } else {
+                for (int level : visited) {
+                    c.items.push_back(openrac::UiItem::button(
+                        g->level_name(level) + (level == status.level ? " (current)" : ""),
+                        level != status.level && playing(status)
+                    ));
+                }
+                c.items.push_back(openrac::UiItem::button("Back to QoL Hub", true));
+            }
+            c.footer = {"Only planets visited in this session are available"};
+            break;
+
+        case View::Checkpoints: {
+            const bool valid = !snapshot.empty() && snapshot_loads == status.loads;
+            c.title = "Checkpoints";
+            c.items = {
+                openrac::UiItem::text(valid ? "Quick checkpoint: ready" : "Quick checkpoint: none"),
+                openrac::UiItem::button("Create quick checkpoint", playing(status)),
+                openrac::UiItem::button("Restore quick checkpoint", playing(status) && valid),
+                openrac::UiItem::button("Back to QoL Hub", true)
+            };
+            c.footer = {"Quick checkpoints last only for the current level load"};
+            break;
+        }
+
+        case View::Saves: {
+            c.title = "Save Manager";
+            const int count = save_slot_count();
+            for (int i = 0; i < count; ++i) {
+                openrac_save_info info{};
+                const int state = g->save_slot(i, info);
+                std::string text = "Slot " + std::to_string(i + 1) + ": ";
+                if (state == 1) {
+                    text += g->level_name(info.level) + " | " + std::to_string(info.bolts)
+                         + " bolts | " + std::to_string(info.gold_bolts) + " gold";
+                } else {
+                    text += "empty";
+                }
+                if (g->has_api_11() && g->save_slot_current() == i) text += " | ACTIVE";
+                c.items.push_back(openrac::UiItem::text(text));
+            }
+            const bool can_save = g->has_api_11() && request_autosave != nullptr
+                               && g->save_slot_current() >= 0;
+            c.items.push_back(openrac::UiItem::button("Save active slot", can_save));
+            c.items.push_back(openrac::UiItem::button("Back to QoL Hub", true));
+            c.footer = {
+                can_save ? "Writes only to the game's current active save"
+                         : "Manual save requires an active save and OpenRAC API 1.11+"
+            };
+            break;
+        }
+
+        case View::Gameplay:
+            c.title = "Gameplay Tools";
+            c.items = {
+                openrac::UiItem::button("Restart current planet", playing(status)),
+                openrac::UiItem::text("Deaths this session: " + std::to_string(deaths)),
+                openrac::UiItem::button("Back to QoL Hub", true)
+            };
+            c.footer = {"Cutscenes are deliberately untouched here"};
+            break;
+
+        case View::Vendor:
+            c.title = "Vendor Info";
+            c.items = {
+                openrac::UiItem::text("Wallet: " + std::to_string(g->bolts()) + " bolts"),
+                openrac::UiItem::text(last_item >= 0
+                    ? "Last acquired item: " + std::to_string(last_item)
+                    : "Last acquired item: -"),
+                openrac::UiItem::button("Back to QoL Hub", true)
+            };
+            break;
+    }
+
+    return c;
 }
 }
 
@@ -310,12 +348,30 @@ void load(openrac::Mod& mod) {
         }
     }
 
-    setup_pages(mod);
+    hub = mod.ui_page([](const openrac::UiPage& page, const openrac::UiEvent& event) {
+        if (event.is(OPENRAC_UI_SHOW)) view = View::Hub;
+        if (event.is(OPENRAC_UI_CHOOSE)) handle_choose(page, event.item());
+        page.set(content_for_view());
+    });
 
-    if (!mod.has_pause_items())
-        throw openrac::Error("Better Pause Menu requires native pause menu items");
+    if (mod.has_pause_items()) {
+        try {
+            mod.ui_pause_item("QoL Hub", hub);
+        } catch (const openrac::Error&) {
+            mod.info("Pause option slots full; use L1+R1+Up for the native QoL Hub");
+        }
+    }
 
-    mod.ui_pause_item("QoL Hub", hub);
+    mod.on_pad([](int port, std::uint8_t* report, int size) {
+        if (port != 0 || report == nullptr || size < 2) return;
+        const auto now = qol::pad_buttons(report);
+        const auto mask = static_cast<std::uint16_t>(
+            OPENRAC_PAD_L1 | OPENRAC_PAD_R1 | OPENRAC_PAD_UP
+        );
+        if (qol::combo_pressed(now, previous_buttons, mask)) pending_open = true;
+        if ((now & mask) == mask) qol::consume_buttons(report, mask);
+        previous_buttons = now;
+    });
 
     mod.on_tick_boundary([](std::uint32_t) {
         const auto status = g->play_status();
@@ -342,6 +398,12 @@ void load(openrac::Mod& mod) {
             was_alive = pose.health > 0;
         } else {
             was_alive = true;
+        }
+
+        if (pending_open) {
+            pending_open = false;
+            view = View::Hub;
+            hub.open();
         }
 
         if (pending_checkpoint_save) {
@@ -375,7 +437,7 @@ void load(openrac::Mod& mod) {
         }
     });
 
-    mod.info("QoL Hub active: collectibles, missions, travel, checkpoints, saves and gameplay tools are in Pause > Options");
+    mod.info("QoL Hub active in one native RAC1 page");
 }
 
-OPENRAC_MOD_CPP("better-pause-menu", "0.3.1", load)
+OPENRAC_MOD_CPP("better-pause-menu", "0.4.0", load)
