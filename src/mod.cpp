@@ -5,8 +5,17 @@
 
 namespace {
 openrac::Mod* g=nullptr;
+openrac::UiPage hub;
 std::uint16_t previous=0;
 int action=0;
+int notice_frames=0;
+
+void notice(const std::string& text){
+    if(g!=nullptr && g->has_notice()){
+        g->play_notice(text);
+        notice_frames=120;
+    }
+}
 
 void summary(){
     const auto status=g->play_status();
@@ -14,7 +23,7 @@ void summary(){
     const bool hero=g->hero_pose(pose);
     std::string text=status.level>=0 ? g->level_name(status.level) : std::string("No planet");
     text+=" | "+qol::hp_line(hero?pose.health:0);
-    if(g->has_notice()) g->play_notice(text);
+    notice(text);
 }
 }
 
@@ -23,7 +32,7 @@ void load(openrac::Mod& mod){
     g=&mod;
 
     if(mod.has_pause_items()){
-        const auto page=mod.ui_page([&mod](const openrac::UiPage& page,const openrac::UiEvent& event){
+        hub=mod.ui_page([&mod](const openrac::UiPage& page,const openrac::UiEvent& event){
             auto status=mod.play_status();
             openrac_pose pose{}; pose.size=sizeof pose;
             const bool hero=mod.hero_pose(pose);
@@ -41,7 +50,7 @@ void load(openrac::Mod& mod){
             if(event.is(OPENRAC_UI_CHOOSE) && event.item()==3 && scene) mod.play_skip();
         });
         try {
-            mod.ui_pause_item("QoL Hub",page);
+            mod.ui_pause_item("QoL Hub",hub);
             mod.info("Pause > Options > QoL Hub");
         } catch(const openrac::Error&) {
             mod.info("Pause slots full; using L1+R1+Up/Down/Select fallback");
@@ -64,19 +73,23 @@ void load(openrac::Mod& mod){
     });
 
     mod.on_frame([]{
+        if(notice_frames>0 && --notice_frames==0 && g->has_notice()) g->play_notice("");
         if(action==0) return;
         const int a=action; action=0;
         const auto status=g->play_status();
-        if(a==1){ summary(); return; }
+        if(a==1){
+            if(!hub.open()) summary();
+            return;
+        }
         if(a==2){
             if(status.level>=0 && status.phase==OPENRAC_PLAY_PLAYING) g->play_travel(status.level);
-            else if(g->has_notice()) g->play_notice("Restart is available while playing");
+            else notice("Restart is available while playing");
             return;
         }
         if(a==3){
             if(g->has_scenes() && g->scene_playing()>=0) g->play_skip();
-            else if(g->has_notice()) g->play_notice("No cutscene is playing");
+            else notice("No cutscene is playing");
         }
     });
 }
-OPENRAC_MOD_CPP("better-pause-menu","0.1.2",load)
+OPENRAC_MOD_CPP("better-pause-menu","0.1.3",load)
