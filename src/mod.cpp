@@ -8,52 +8,36 @@ openrac::Mod* g=nullptr;
 openrac::UiPage hub;
 std::uint16_t previous=0;
 int action=0;
-int notice_frames=0;
-
-void notice(const std::string& text){
-    if(g!=nullptr && g->has_notice()){
-        g->play_notice(text);
-        notice_frames=120;
-    }
-}
-
-void summary(){
-    const auto status=g->play_status();
-    openrac_pose pose{}; pose.size=sizeof pose;
-    const bool hero=g->hero_pose(pose);
-    std::string text=status.level>=0 ? g->level_name(status.level) : std::string("No planet");
-    text+=" | "+qol::hp_line(hero?pose.health:0);
-    notice(text);
-}
 }
 
 void load(openrac::Mod& mod){
     if(mod.game()!="rac1" || !mod.has_play()) throw openrac::Error("Better Pause Menu requires RAC1 play API");
     g=&mod;
 
+    hub=mod.ui_page([&mod](const openrac::UiPage& page,const openrac::UiEvent& event){
+        const auto status=mod.play_status();
+        openrac_pose pose{}; pose.size=sizeof pose;
+        const bool hero=mod.hero_pose(pose);
+        openrac::UiContent c;
+        c.title="QoL Hub";
+        c.items={
+            openrac::UiItem::text(status.level>=0 ? "Planet: "+mod.level_name(status.level) : "Planet: -"),
+            openrac::UiItem::text(qol::hp_line(hero?pose.health:0)),
+            openrac::UiItem::button("Restart current planet",status.level>=0 && status.phase==OPENRAC_PLAY_PLAYING)
+        };
+        c.footer={"L1 + R1 + Up opens this page"};
+        page.set(c);
+        if(event.is(OPENRAC_UI_CHOOSE) && event.item()==2 && status.level>=0
+           && status.phase==OPENRAC_PLAY_PLAYING) {
+            mod.play_travel(status.level);
+        }
+    });
+
     if(mod.has_pause_items()){
-        hub=mod.ui_page([&mod](const openrac::UiPage& page,const openrac::UiEvent& event){
-            auto status=mod.play_status();
-            openrac_pose pose{}; pose.size=sizeof pose;
-            const bool hero=mod.hero_pose(pose);
-            const bool scene=mod.has_scenes() && mod.scene_playing()>=0;
-            openrac::UiContent c;
-            c.title="QoL Hub";
-            c.items={
-                openrac::UiItem::text(status.level>=0 ? "Planet: "+mod.level_name(status.level) : "Planet: -"),
-                openrac::UiItem::text(qol::hp_line(hero?pose.health:0)),
-                openrac::UiItem::button("Restart current planet",status.level>=0),
-                openrac::UiItem::button("Skip current cutscene",scene)
-            };
-            page.set(c);
-            if(event.is(OPENRAC_UI_CHOOSE) && event.item()==2 && status.level>=0) mod.play_travel(status.level);
-            if(event.is(OPENRAC_UI_CHOOSE) && event.item()==3 && scene) mod.play_skip();
-        });
         try {
             mod.ui_pause_item("QoL Hub",hub);
-            mod.info("Pause > Options > QoL Hub");
         } catch(const openrac::Error&) {
-            mod.info("Pause slots full; using L1+R1+Up/Down/Select fallback");
+            mod.info("Pause slots full; QoL Hub remains available by hotkey");
         }
     }
 
@@ -62,34 +46,19 @@ void load(openrac::Mod& mod){
         const auto now=qol::pad_buttons(report);
         const auto show=static_cast<std::uint16_t>(OPENRAC_PAD_L1|OPENRAC_PAD_R1|OPENRAC_PAD_UP);
         const auto restart=static_cast<std::uint16_t>(OPENRAC_PAD_L1|OPENRAC_PAD_R1|OPENRAC_PAD_DOWN);
-        const auto skip=static_cast<std::uint16_t>(OPENRAC_PAD_L1|OPENRAC_PAD_R1|OPENRAC_PAD_SELECT);
         if(qol::combo_pressed(now,previous,show)) action=1;
         if(qol::combo_pressed(now,previous,restart)) action=2;
-        if(qol::combo_pressed(now,previous,skip)) action=3;
         if((now&show)==show) qol::consume_buttons(report,show);
         if((now&restart)==restart) qol::consume_buttons(report,restart);
-        if((now&skip)==skip) qol::consume_buttons(report,skip);
         previous=now;
     });
 
     mod.on_frame([]{
-        if(notice_frames>0 && --notice_frames==0 && g->has_notice()) g->play_notice("");
         if(action==0) return;
         const int a=action; action=0;
         const auto status=g->play_status();
-        if(a==1){
-            if(!hub.open()) summary();
-            return;
-        }
-        if(a==2){
-            if(status.level>=0 && status.phase==OPENRAC_PLAY_PLAYING) g->play_travel(status.level);
-            else notice("Restart is available while playing");
-            return;
-        }
-        if(a==3){
-            if(g->has_scenes() && g->scene_playing()>=0) g->play_skip();
-            else notice("No cutscene is playing");
-        }
+        if(a==1){ hub.open(); return; }
+        if(a==2 && status.level>=0 && status.phase==OPENRAC_PLAY_PLAYING) g->play_travel(status.level);
     });
 }
-OPENRAC_MOD_CPP("better-pause-menu","0.1.3",load)
+OPENRAC_MOD_CPP("better-pause-menu","0.2.0",load)
