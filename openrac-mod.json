@@ -1,0 +1,16 @@
+{
+  "format": 2,
+  "version": "0.1.0",
+  "author": "mo",
+  "license": "GPL-3.0-or-later",
+  "api": "1.9",
+  "games": {
+    "rac1": [
+      "pal",
+      "ntsc"
+    ]
+  },
+  "id": "better-pause-menu",
+  "name": "Better Pause Menu",
+  "description": "Adds a compact QoL Hub to Pause > Options with live level, health and bolt status plus restart and cutscene-skip actions."
+}
