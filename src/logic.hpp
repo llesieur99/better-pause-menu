@@ -1,7 +1,25 @@
 #pragma once
 #include <cstdint>
+#include <cstddef>
 #include <string>
 namespace qol {
+inline std::string clip_line(std::string text, std::size_t max = 46) {
+    if (text.size() <= max) return text;
+    if (max <= 3) return text.substr(0, max);
+    return text.substr(0, max - 3) + "...";
+}
+inline std::string hub_status_line(const std::string& planet, int hp, int bolts) {
+    return clip_line(planet + " | HP " + std::to_string(hp) + " | " + std::to_string(bolts) + " bolts");
+}
+inline std::string hub_session_line(int deaths, bool checkpoint_ready, int mods) {
+    return clip_line(
+        "Deaths " + std::to_string(deaths) + " | checkpoint "
+        + (checkpoint_ready ? "ready" : "none") + " | mods " + std::to_string(mods)
+    );
+}
+inline std::string hub_progress_line(const std::string& progress) {
+    return clip_line("Last: " + progress);
+}
 inline std::string hp_line(int hp){ return "Health "+std::to_string(hp); }
 inline std::uint16_t pad_buttons(const std::uint8_t* report) {
  return static_cast<std::uint16_t>((~report[0])&0xffu)
