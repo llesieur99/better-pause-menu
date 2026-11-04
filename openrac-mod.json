@@ -12,5 +12,10 @@
   },
   "id": "better-pause-menu",
   "name": "Better Pause Menu",
-  "description": "Central RAC1-style QoL Hub for status, collectibles, missions, fast travel, checkpoints, saves, restart and vendor information; no duplicate bolt HUD and no cutscene skipping."
+  "description": "Central RAC1-style QoL Hub for status, collectibles, missions, fast travel, checkpoints, saves, restart and vendor information; no duplicate bolt HUD and no cutscene skipping.",
+  "hooks": [
+    "rac1.gold_bolt.count_collected",
+    "rac1.planet.unlock",
+    "rac1.item.give"
+  ]
 }
