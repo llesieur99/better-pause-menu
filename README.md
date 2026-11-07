@@ -69,4 +69,3 @@ Validation before release: check the native confirmation and pause-menu exit on
 PAL and NTSC-U, compare the respawn position/progress with an ordinary death,
 verify cancellation and repeated use, and check coexistence with Quick checkpoints.
 The automated tests use a fake API and do not prove in-game behavior.
-
